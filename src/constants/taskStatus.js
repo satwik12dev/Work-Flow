@@ -1,0 +1,22 @@
+export const TASK_STATUS = Object.freeze({
+  TODO: 'TODO',
+  IN_PROGRESS: 'IN_PROGRESS',
+  IN_REVIEW: 'IN_REVIEW',
+  DONE: 'DONE',
+  BLOCKED: 'BLOCKED',
+});
+
+export const ALL_TASK_STATUSES = Object.values(TASK_STATUS);
+
+/**
+ * Defines which status transitions are valid.
+ * Key = current status, Value = array of allowed next statuses.
+ */
+export const ALLOWED_TASK_TRANSITIONS = Object.freeze({
+  [TASK_STATUS.TODO]: [TASK_STATUS.IN_PROGRESS, TASK_STATUS.BLOCKED],
+  [TASK_STATUS.IN_PROGRESS]: [TASK_STATUS.IN_REVIEW, TASK_STATUS.BLOCKED, TASK_STATUS.TODO],
+  [TASK_STATUS.IN_REVIEW]: [TASK_STATUS.DONE, TASK_STATUS.IN_PROGRESS],
+  [TASK_STATUS.DONE]: [TASK_STATUS.IN_PROGRESS], // reopen
+  [TASK_STATUS.BLOCKED]: [TASK_STATUS.TODO, TASK_STATUS.IN_PROGRESS],
+});
+

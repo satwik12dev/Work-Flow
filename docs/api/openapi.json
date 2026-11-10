@@ -1,0 +1,918 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "WorkFlowX API",
+    "version": "1.0.0",
+    "description": "Multi-tenant Project and Team Management System API. Protected routes require a JWT Bearer token, and organization-scoped routes require the `X-Organization-Id` header."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000/api/v1",
+      "description": "Local Development Server"
+    }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "Authentication, OTP, Sessions, and Password Recovery" },
+    { "name": "Users", "description": "User Profile and Personal Tasks" },
+    { "name": "Organizations", "description": "Multi-tenant Organizations, Members, and Invitations" },
+    { "name": "Teams", "description": "Team Management and Workload" },
+    { "name": "Projects", "description": "Project Lifecycle and Members" },
+    { "name": "Tasks", "description": "Task Management, Assignment, and Activity History" },
+    { "name": "Comments", "description": "Task Comments and Moderation" },
+    { "name": "Attachments", "description": "Cloudinary Task File Attachments" },
+    { "name": "Notifications", "description": "In-App Notifications" },
+    { "name": "Analytics", "description": "Organization, Manager, Employee, and Project Dashboards" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "parameters": {
+      "OrganizationIdHeader": {
+        "in": "header",
+        "name": "X-Organization-Id",
+        "required": true,
+        "schema": { "type": "string", "example": "66f1b4a8e9d3a1b2c3d4e5f6" },
+        "description": "Active Organization ObjectId for multi-tenant isolation"
+      },
+      "IdParam": {
+        "in": "path",
+        "name": "id",
+        "required": true,
+        "schema": { "type": "string" }
+      }
+    },
+    "schemas": {
+      "ApiSuccess": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": { "type": "object" }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "message": { "type": "string" },
+          "errors": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Unauthorized - Missing or invalid JWT token",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } }
+      },
+      "Forbidden": {
+        "description": "Forbidden - Insufficient role or organization access",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } }
+      },
+      "BadRequest": {
+        "description": "Validation or business rule error",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "security": [],
+        "summary": "Register a new user and send verification OTP",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "email", "password"],
+                "properties": {
+                  "name": { "type": "string", "example": "Jane Doe" },
+                  "email": { "type": "string", "format": "email", "example": "jane@acme.com" },
+                  "password": { "type": "string", "example": "StrongPass123!" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "User registered successfully" },
+          "409": { "description": "Email already exists" }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "security": [],
+        "summary": "Authenticate user and issue JWT access token + HttpOnly refresh cookie",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Login successful" },
+          "401": { "description": "Invalid credentials" },
+          "403": { "description": "Email not verified" }
+        }
+      }
+    },
+    "/auth/send-otp": {
+      "post": {
+        "tags": ["Auth"],
+        "security": [],
+        "summary": "Send 6-digit OTP via Brevo",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "purpose"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "purpose": { "type": "string", "enum": ["REGISTRATION", "FORGOT_PASSWORD", "EMAIL_CHANGE"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OTP sent" } }
+      }
+    },
+    "/auth/verify-otp": {
+      "post": {
+        "tags": ["Auth"],
+        "security": [],
+        "summary": "Verify 6-digit Redis OTP",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "otp", "purpose"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "otp": { "type": "string", "example": "123456" },
+                  "purpose": { "type": "string", "enum": ["REGISTRATION", "FORGOT_PASSWORD", "EMAIL_CHANGE"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OTP verified" }, "400": { "description": "Invalid or expired OTP" } }
+      }
+    },
+    "/auth/resend-otp": {
+      "post": {
+        "tags": ["Auth"],
+        "security": [],
+        "summary": "Resend OTP (respects 60s cooldown)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "purpose"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "purpose": { "type": "string", "enum": ["REGISTRATION", "FORGOT_PASSWORD", "EMAIL_CHANGE"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OTP resent" } }
+      }
+    },
+    "/auth/forgot-password": {
+      "post": {
+        "tags": ["Auth"],
+        "security": [],
+        "summary": "Request password reset OTP",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": { "email": { "type": "string", "format": "email" } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Generic confirmation" } }
+      }
+    },
+    "/auth/reset-password": {
+      "post": {
+        "tags": ["Auth"],
+        "security": [],
+        "summary": "Reset password using short-lived resetToken",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["resetToken", "newPassword"],
+                "properties": {
+                  "resetToken": { "type": "string" },
+                  "newPassword": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Password reset" } }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "security": [],
+        "summary": "Rotate refresh token (cookie or body)",
+        "responses": { "200": { "description": "Tokens rotated" }, "401": { "description": "Invalid or reused token" } }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "security": [],
+        "summary": "Logout current device session",
+        "responses": { "200": { "description": "Logged out" } }
+      }
+    },
+    "/auth/logout-all": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Revoke all active sessions for current user",
+        "responses": { "200": { "description": "Logged out from all devices" } }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Get current authenticated user",
+        "responses": { "200": { "description": "User profile" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/auth/change-password": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Change password and revoke active sessions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["oldPassword", "newPassword"],
+                "properties": {
+                  "oldPassword": { "type": "string" },
+                  "newPassword": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Password changed" } }
+      }
+    },
+    "/auth/sessions": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "List active user sessions",
+        "responses": { "200": { "description": "Sessions list" } }
+      }
+    },
+    "/users/profile": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "Get user profile",
+        "responses": { "200": { "description": "Profile retrieved" } }
+      },
+      "patch": {
+        "tags": ["Users"],
+        "summary": "Update user profile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "properties": { "name": { "type": "string" } } }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Profile updated" } }
+      }
+    },
+    "/users/me/tasks": {
+      "get": {
+        "tags": ["Users", "Tasks"],
+        "summary": "Get current user's tasks in active organization",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "Tasks retrieved" } }
+      }
+    },
+    "/organizations": {
+      "post": {
+        "tags": ["Organizations"],
+        "summary": "Create organization (creator becomes ADMIN & owner)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "description": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Organization created" } }
+      },
+      "get": {
+        "tags": ["Organizations"],
+        "summary": "List organizations the authenticated user belongs to",
+        "responses": { "200": { "description": "Organizations list" } }
+      }
+    },
+    "/organizations/{id}": {
+      "get": {
+        "tags": ["Organizations"],
+        "summary": "Get organization details",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Organization details" } }
+      },
+      "patch": {
+        "tags": ["Organizations"],
+        "summary": "Update organization (ADMIN only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Organization updated" } }
+      },
+      "delete": {
+        "tags": ["Organizations"],
+        "summary": "Soft-delete organization (Owner only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Organization deleted" } }
+      }
+    },
+    "/organizations/{id}/invitations": {
+      "post": {
+        "tags": ["Organizations"],
+        "summary": "Invite employee by email (ADMIN only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "role": { "type": "string", "enum": ["ADMIN", "MANAGER", "EMPLOYEE"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Invitation sent" } }
+      },
+      "get": {
+        "tags": ["Organizations"],
+        "summary": "List pending invitations (ADMIN only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Invitations list" } }
+      }
+    },
+    "/organizations/invitations/{token}/accept": {
+      "post": {
+        "tags": ["Organizations"],
+        "summary": "Accept organization invitation",
+        "parameters": [{ "in": "path", "name": "token", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Invitation accepted" } }
+      }
+    },
+    "/organizations/invitations/{token}/reject": {
+      "post": {
+        "tags": ["Organizations"],
+        "summary": "Reject organization invitation",
+        "parameters": [{ "in": "path", "name": "token", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Invitation rejected" } }
+      }
+    },
+    "/organizations/{id}/members": {
+      "post": {
+        "tags": ["Organizations"],
+        "summary": "Directly add a registered user to organization with a role (ADMIN only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userId": { "type": "string" },
+                  "email": { "type": "string", "format": "email" },
+                  "role": { "type": "string", "enum": ["ADMIN", "MANAGER", "EMPLOYEE"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Member added" } }
+      },
+      "get": {
+        "tags": ["Organizations"],
+        "summary": "List organization members",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Members list" } }
+      }
+    },
+    "/organizations/{id}/members/{memberId}/role": {
+      "patch": {
+        "tags": ["Organizations"],
+        "summary": "Update member role (ADMIN only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "in": "path", "name": "memberId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Role updated" } }
+      }
+    },
+    "/organizations/{id}/members/{memberId}": {
+      "delete": {
+        "tags": ["Organizations"],
+        "summary": "Remove organization member (ADMIN only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "in": "path", "name": "memberId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Member removed" } }
+      }
+    },
+    "/teams": {
+      "post": {
+        "tags": ["Teams"],
+        "summary": "Create team (ADMIN / MANAGER)",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "201": { "description": "Team created" } }
+      },
+      "get": {
+        "tags": ["Teams"],
+        "summary": "List teams in organization",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "Teams list" } }
+      }
+    },
+    "/teams/{id}": {
+      "get": {
+        "tags": ["Teams"],
+        "summary": "Get team details",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Team details" } }
+      },
+      "patch": {
+        "tags": ["Teams"],
+        "summary": "Update team",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Team updated" } }
+      },
+      "delete": {
+        "tags": ["Teams"],
+        "summary": "Delete team (ADMIN only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Team deleted" } }
+      }
+    },
+    "/teams/{id}/members": {
+      "post": {
+        "tags": ["Teams"],
+        "summary": "Add member to team",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "201": { "description": "Member added" } }
+      }
+    },
+    "/teams/{id}/members/{userId}": {
+      "delete": {
+        "tags": ["Teams"],
+        "summary": "Remove member from team",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "in": "path", "name": "userId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Member removed" } }
+      }
+    },
+    "/teams/{id}/manager": {
+      "patch": {
+        "tags": ["Teams"],
+        "summary": "Assign team manager (ADMIN only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Manager assigned" } }
+      }
+    },
+    "/teams/{id}/workload": {
+      "get": {
+        "tags": ["Teams"],
+        "summary": "Get team workload metrics",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Workload metrics" } }
+      }
+    },
+    "/projects": {
+      "post": {
+        "tags": ["Projects"],
+        "summary": "Create project (ADMIN / MANAGER)",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "201": { "description": "Project created" } }
+      },
+      "get": {
+        "tags": ["Projects"],
+        "summary": "List projects scoped by org and role",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "Projects list" } }
+      }
+    },
+    "/projects/{id}": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "Get project details with completion %",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Project details" } }
+      },
+      "patch": {
+        "tags": ["Projects"],
+        "summary": "Update project",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Project updated" } }
+      },
+      "delete": {
+        "tags": ["Projects"],
+        "summary": "Soft-delete project (ADMIN only)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Project deleted" } }
+      }
+    },
+    "/projects/{id}/status": {
+      "patch": {
+        "tags": ["Projects"],
+        "summary": "Transition project status",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Status updated" } }
+      }
+    },
+    "/projects/{id}/members": {
+      "post": {
+        "tags": ["Projects"],
+        "summary": "Add member to project",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "201": { "description": "Member added" } }
+      }
+    },
+    "/projects/{id}/members/{userId}": {
+      "delete": {
+        "tags": ["Projects"],
+        "summary": "Remove member from project",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "in": "path", "name": "userId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Member removed" } }
+      }
+    },
+    "/projects/{projectId}/tasks": {
+      "get": {
+        "tags": ["Projects", "Tasks"],
+        "summary": "List tasks in a specific project",
+        "parameters": [
+          { "in": "path", "name": "projectId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Project tasks retrieved" } }
+      }
+    },
+    "/tasks": {
+      "post": {
+        "tags": ["Tasks"],
+        "summary": "Create task (atomically queues assignment email if assigned)",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "201": { "description": "Task created" } }
+      },
+      "get": {
+        "tags": ["Tasks"],
+        "summary": "Search, filter, sort, and paginate tasks",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "Tasks list" } }
+      }
+    },
+    "/tasks/{id}": {
+      "get": {
+        "tags": ["Tasks"],
+        "summary": "Get task details",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Task details" } }
+      },
+      "patch": {
+        "tags": ["Tasks"],
+        "summary": "Update task details",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Task updated" } }
+      },
+      "delete": {
+        "tags": ["Tasks"],
+        "summary": "Soft-delete task",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Task deleted" } }
+      }
+    },
+    "/tasks/{id}/status": {
+      "patch": {
+        "tags": ["Tasks"],
+        "summary": "Update task status",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Status updated" } }
+      }
+    },
+    "/tasks/{id}/assign": {
+      "patch": {
+        "tags": ["Tasks"],
+        "summary": "Assign or reassign task (triggers Outbox email & Socket.IO notification)",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Task assigned" } }
+      }
+    },
+    "/tasks/{id}/activity": {
+      "get": {
+        "tags": ["Tasks"],
+        "summary": "Get task activity log history",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Activity history" } }
+      }
+    },
+    "/tasks/{taskId}/comments": {
+      "post": {
+        "tags": ["Comments"],
+        "summary": "Add comment to task",
+        "parameters": [
+          { "in": "path", "name": "taskId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "201": { "description": "Comment added" } }
+      },
+      "get": {
+        "tags": ["Comments"],
+        "summary": "List task comments",
+        "parameters": [
+          { "in": "path", "name": "taskId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Comments retrieved" } }
+      }
+    },
+    "/comments/{commentId}": {
+      "patch": {
+        "tags": ["Comments"],
+        "summary": "Edit own comment",
+        "parameters": [
+          { "in": "path", "name": "commentId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Comment updated" } }
+      },
+      "delete": {
+        "tags": ["Comments"],
+        "summary": "Delete comment (author or Admin/Manager moderation)",
+        "parameters": [
+          { "in": "path", "name": "commentId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Comment deleted" } }
+      }
+    },
+    "/tasks/{taskId}/attachments": {
+      "post": {
+        "tags": ["Attachments"],
+        "summary": "Upload up to 5 files (max 10MB each) to Cloudinary",
+        "parameters": [
+          { "in": "path", "name": "taskId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "201": { "description": "Files uploaded" } }
+      },
+      "get": {
+        "tags": ["Attachments"],
+        "summary": "List task attachments",
+        "parameters": [
+          { "in": "path", "name": "taskId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Attachments retrieved" } }
+      }
+    },
+    "/attachments/{attachmentId}": {
+      "get": {
+        "tags": ["Attachments"],
+        "summary": "Get attachment metadata",
+        "parameters": [
+          { "in": "path", "name": "attachmentId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Attachment metadata" } }
+      },
+      "delete": {
+        "tags": ["Attachments"],
+        "summary": "Delete attachment from Cloudinary and MongoDB",
+        "parameters": [
+          { "in": "path", "name": "attachmentId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Attachment deleted" } }
+      }
+    },
+    "/notifications": {
+      "get": {
+        "tags": ["Notifications"],
+        "summary": "Get paginated notifications for current user",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "Notifications list" } }
+      }
+    },
+    "/notifications/unread-count": {
+      "get": {
+        "tags": ["Notifications"],
+        "summary": "Get unread notification count",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "Unread count" } }
+      }
+    },
+    "/notifications/read-all": {
+      "patch": {
+        "tags": ["Notifications"],
+        "summary": "Mark all notifications as read",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "All marked as read" } }
+      }
+    },
+    "/notifications/{id}/read": {
+      "patch": {
+        "tags": ["Notifications"],
+        "summary": "Mark single notification as read",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Marked as read" } }
+      }
+    },
+    "/notifications/{id}": {
+      "delete": {
+        "tags": ["Notifications"],
+        "summary": "Delete notification",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Notification deleted" } }
+      }
+    },
+    "/analytics/organization": {
+      "get": {
+        "tags": ["Analytics"],
+        "summary": "Organization-wide dashboard (ADMIN only)",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "Organization metrics" } }
+      }
+    },
+    "/analytics/manager": {
+      "get": {
+        "tags": ["Analytics"],
+        "summary": "Manager dashboard with team workload (ADMIN / MANAGER)",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "Manager metrics" } }
+      }
+    },
+    "/analytics/my-dashboard": {
+      "get": {
+        "tags": ["Analytics"],
+        "summary": "Personal employee dashboard & upcoming deadlines",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationIdHeader" }],
+        "responses": { "200": { "description": "Employee metrics" } }
+      }
+    },
+    "/analytics/projects/{projectId}": {
+      "get": {
+        "tags": ["Analytics"],
+        "summary": "Project analytics breakdown",
+        "parameters": [
+          { "in": "path", "name": "projectId", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/OrganizationIdHeader" }
+        ],
+        "responses": { "200": { "description": "Project analytics" } }
+      }
+    }
+  }
+}
+
